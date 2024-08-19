@@ -19,11 +19,13 @@ const (
 )
 
 type config struct {
-	ignorePaths      stringSet
-	directories      []string
-	ignoreFiles      []string
-	maxClipboardSize int
-	copyToClipboard  bool
+	ignorePaths        stringSet
+	directories        []string
+	ignoreFiles        []string
+	maxClipboardSize   int
+	copyToClipboard    bool
+	outputFile         string
+	forceOutputReplace bool
 }
 
 type stringSet map[string]struct{}
@@ -54,7 +56,11 @@ func main() {
 
 	formattedOutput := formatOutput(cfg)
 
-	fmt.Print(formattedOutput)
+	if cfg.outputFile != "" {
+		handleFileOutput(formattedOutput, cfg)
+	} else {
+		fmt.Print(formattedOutput)
+	}
 
 	handleClipboardCopy(formattedOutput, cfg)
 }
@@ -85,6 +91,9 @@ func parseFlags() config {
 		return nil
 	})
 
+	flag.StringVar(&cfg.outputFile, "output-file", "", "Output file path")
+	flag.BoolVar(&cfg.forceOutputReplace, "force-replace-output", false, "Force replace existing output file without prompting")
+
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
 		flag.PrintDefaults()
@@ -111,7 +120,7 @@ func handleClipboardCopy(output string, cfg config) {
 		return
 	}
 
-	fmt.Println("Output has been copied to clipboard.")
+	fmt.Printf("Output (%d length) has been copied to clipboard.\n", len(output))
 }
 
 func formatOutput(cfg config) string {
@@ -222,6 +231,31 @@ func printFileContents(filePath string, output *strings.Builder) {
 	output.Write(content)
 	output.WriteString("\n\t\t</document_content>\n")
 	output.WriteString("\t</document>\n")
+}
+
+func handleFileOutput(output string, cfg config) {
+	if _, err := os.Stat(cfg.outputFile); err == nil && !cfg.forceOutputReplace {
+		if !promptReplace(cfg.outputFile) {
+			fmt.Println("Operation cancelled.")
+			return
+		}
+	}
+
+	err := os.WriteFile(cfg.outputFile, []byte(output), 0644)
+	if err != nil {
+		fmt.Printf("Error writing to output file: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Output written to %s\n", cfg.outputFile)
+}
+
+func promptReplace(filePath string) bool {
+	reader := bufio.NewReader(os.Stdin)
+	fmt.Printf("File %s already exists. Replace? (y/N): ", filePath)
+	response, _ := reader.ReadString('\n')
+	response = strings.ToLower(strings.TrimSpace(response))
+	return response == "y" || response == "yes"
 }
 
 type stringSliceFlag []string
