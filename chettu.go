@@ -160,8 +160,15 @@ func processDirectory(root string, ignorePatterns []string, output *strings.Buil
 	ignoreParser := ignore.CompileIgnoreLines(ignorePatterns...)
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
-		if err != nil || path == root {
+		if err != nil {
 			return err
+		}
+
+		if ignoreParser.MatchesPath(path) {
+			if info.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 
 		relPath, err := filepath.Rel(root, path)
@@ -169,17 +176,12 @@ func processDirectory(root string, ignorePatterns []string, output *strings.Buil
 			return err
 		}
 
-		if ignoreParser.MatchesPath(relPath) {
-			if info.IsDir() {
-				return filepath.SkipDir
+		if path != root {
+			path = ensureRelativePath(relPath)
+			output.WriteString(path + "\n")
+			if !info.IsDir() {
+				*filePaths = append(*filePaths, path)
 			}
-			return nil
-		}
-
-		path = ensureRelativePath(path)
-		output.WriteString(path + "\n")
-		if !info.IsDir() {
-			*filePaths = append(*filePaths, path)
 		}
 		return nil
 	})
