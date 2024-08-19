@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -142,7 +143,7 @@ func formatOutput(cfg config, ignorePatterns []string) string {
 	output.WriteString("<documents>\n")
 
 	for _, root := range cfg.directories {
-		processDirectory(root, ignorePatterns, &output, &filePaths)
+		processDirectory(root, ignorePatterns, &output, &filePaths, os.Stdout)
 	}
 
 	output.WriteString("\n")
@@ -156,7 +157,7 @@ func formatOutput(cfg config, ignorePatterns []string) string {
 	return output.String()
 }
 
-func processDirectory(root string, ignorePatterns []string, output *strings.Builder, filePaths *[]string) {
+func processDirectory(root string, ignorePatterns []string, output *strings.Builder, filePaths *[]string, treeOutput io.Writer) {
 	ignoreParser := ignore.CompileIgnoreLines(ignorePatterns...)
 
 	absRoot, err := filepath.Abs(root)
@@ -183,7 +184,11 @@ func processDirectory(root string, ignorePatterns []string, output *strings.Buil
 		}
 
 		relPathFromRoot := filepath.Join(filepath.Base(root), relPath)
+
+		fmt.Fprintln(treeOutput, relPathFromRoot)
+
 		output.WriteString(relPathFromRoot + "\n")
+
 		if !info.IsDir() {
 			*filePaths = append(*filePaths, relPathFromRoot)
 		}
