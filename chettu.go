@@ -167,8 +167,8 @@ func processDirectory(root string, ignorePatterns []string, output *strings.Buil
 			return nil
 		}
 
-		fmt.Fprintln(treeOutput, fullRelPath)
-		output.WriteString(fullRelPath + "\n")
+		fmt.Fprintln(treeOutput, "./"+fullRelPath)
+		output.WriteString("./" + fullRelPath + "\n")
 
 		if !info.IsDir() {
 			*filePaths = append(*filePaths, fullRelPath)
