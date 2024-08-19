@@ -175,14 +175,14 @@ func processDirectory(root string, ignorePatterns []string, output *strings.Buil
 			return err
 		}
 
-		if ignoreParser.MatchesPath(relPath) {
+		if ignoreParser.MatchesPath(filepath.Join(filepath.Base(root), relPath)) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		relPathFromRoot := filepath.Join(root, relPath)
+		relPathFromRoot := filepath.Join(filepath.Base(root), relPath)
 		output.WriteString(relPathFromRoot + "\n")
 		if !info.IsDir() {
 			*filePaths = append(*filePaths, relPathFromRoot)
