@@ -75,6 +75,13 @@ func parseFlags() config {
 	}
 
 	flag.Parse()
+
+	if cfg.forceOutputReplace && cfg.outputFile == "" {
+		fmt.Println("Error: -force-replace-output flag requires -output-file to be specified")
+		flag.Usage()
+		os.Exit(1)
+	}
+
 	return cfg
 }
 
