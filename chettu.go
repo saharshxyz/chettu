@@ -31,15 +31,8 @@ type config struct {
 
 type stringSet map[string]struct{}
 
-func (s stringSet) Add(value string) {
-	s[value] = struct{}{}
-}
-
-func (s stringSet) Contains(value string) bool {
-	_, ok := s[value]
-	return ok
-}
-
+func (s stringSet) Add(value string)           { s[value] = struct{}{} }
+func (s stringSet) Contains(value string) bool { _, ok := s[value]; return ok }
 func (s stringSet) ToSlice() []string {
 	result := make([]string, 0, len(s))
 	for k := range s {
@@ -50,38 +43,20 @@ func (s stringSet) ToSlice() []string {
 
 func main() {
 	cfg := parseFlags()
+	setDefaultValues(&cfg)
 
-	if len(cfg.directories) == 0 {
-		cfg.directories = append(cfg.directories, ".")
-	}
-
-	if len(cfg.ignoreFiles) == 0 {
-		cfg.ignoreFiles = append(cfg.ignoreFiles, defaultIgnoreFile)
-	}
-
-	ignorePatterns, err := loadIgnorePatternsFromFiles(cfg.ignoreFiles)
+	ignorePatterns, err := loadIgnorePatterns(cfg.ignoreFiles, cfg.ignorePaths)
 	if err != nil {
 		fmt.Printf("Error loading ignore patterns: %v\n", err)
 		return
 	}
 
-	ignorePatterns = append(ignorePatterns, cfg.ignorePaths.ToSlice()...)
-
-	formattedOutput := formatOutput(cfg, ignorePatterns)
-
-	if cfg.outputFile != "" {
-		handleFileOutput(formattedOutput, cfg)
-	} else {
-		fmt.Print(formattedOutput)
-	}
-
-	handleClipboardCopy(formattedOutput, cfg)
+	output := generateOutput(cfg, ignorePatterns)
+	handleOutput(output, cfg)
 }
 
 func parseFlags() config {
-	cfg := config{
-		ignorePaths: make(stringSet),
-	}
+	cfg := config{ignorePaths: make(stringSet)}
 
 	flag.Func("i", "Paths to ignore (can be used multiple times). Use -i \"\" to clear default ignore patterns.", func(value string) error {
 		cfg.ignorePaths.Add(value)
@@ -89,21 +64,7 @@ func parseFlags() config {
 	})
 	flag.Var((*stringSliceFlag)(&cfg.directories), "d", "Directories to process (can be used multiple times)")
 	flag.Var((*stringSliceFlag)(&cfg.ignoreFiles), "ignore-file", "Files containing ignore patterns (can be used multiple times, default: .gitignore). Use -ignore-file \"\" to prevent loading any ignore files.")
-
-	flag.Func("c", "Enable clipboard copy with optional max size (default: 50000)", func(flagValue string) error {
-		cfg.copyToClipboard = true
-		if flagValue == "" {
-			cfg.maxClipboardSize = defaultMaxClipboardSize
-		} else {
-			var err error
-			cfg.maxClipboardSize, err = strconv.Atoi(flagValue)
-			if err != nil {
-				return fmt.Errorf("invalid value for -c: %v", err)
-			}
-		}
-		return nil
-	})
-
+	flag.Func("c", "Enable clipboard copy with optional max size (default: 50000)", parseClipboardFlag(&cfg))
 	flag.StringVar(&cfg.outputFile, "output-file", "", "Output file path")
 	flag.BoolVar(&cfg.forceOutputReplace, "force-replace-output", false, "Force replace existing output file without prompting")
 
@@ -114,29 +75,43 @@ func parseFlags() config {
 	}
 
 	flag.Parse()
-
 	return cfg
 }
 
-func handleClipboardCopy(output string, cfg config) {
-	if !cfg.copyToClipboard {
-		return
+func parseClipboardFlag(cfg *config) func(string) error {
+	return func(flagValue string) error {
+		cfg.copyToClipboard = true
+		if flagValue == "" {
+			cfg.maxClipboardSize = defaultMaxClipboardSize
+			return nil
+		}
+		var err error
+		cfg.maxClipboardSize, err = strconv.Atoi(flagValue)
+		if err != nil {
+			return fmt.Errorf("invalid value for -c: %v", err)
+		}
+		return nil
 	}
-
-	if len(output) > cfg.maxClipboardSize {
-		fmt.Printf("Error: Output size (%d) exceeds the maximum clipboard size (%d)\n", len(output), cfg.maxClipboardSize)
-		return
-	}
-
-	if err := clipboard.WriteAll(output); err != nil {
-		fmt.Printf("Failed to copy to clipboard: %v\n", err)
-		return
-	}
-
-	fmt.Printf("Output (%d length) has been copied to clipboard.\n", len(output))
 }
 
-func formatOutput(cfg config, ignorePatterns []string) string {
+func setDefaultValues(cfg *config) {
+	if len(cfg.directories) == 0 {
+		cfg.directories = []string{"."}
+	}
+	if len(cfg.ignoreFiles) == 0 {
+		cfg.ignoreFiles = []string{defaultIgnoreFile}
+	}
+}
+
+func loadIgnorePatterns(ignoreFiles []string, ignorePaths stringSet) ([]string, error) {
+	patterns, err := loadIgnorePatternsFromFiles(ignoreFiles)
+	if err != nil {
+		return nil, err
+	}
+	return append(patterns, ignorePaths.ToSlice()...), nil
+}
+
+func generateOutput(cfg config, ignorePatterns []string) string {
 	var output strings.Builder
 	var filePaths []string
 
@@ -149,7 +124,7 @@ func formatOutput(cfg config, ignorePatterns []string) string {
 	output.WriteString("\n")
 
 	for _, filePath := range filePaths {
-		printFileContents(filePath, &output)
+		appendFileContents(filePath, &output)
 	}
 
 	output.WriteString("</documents>\n")
@@ -176,21 +151,19 @@ func processDirectory(root string, ignorePatterns []string, output *strings.Buil
 			return err
 		}
 
-		if ignoreParser.MatchesPath(filepath.Join(filepath.Base(root), relPath)) {
+		fullRelPath := filepath.Join(filepath.Base(root), relPath)
+		if ignoreParser.MatchesPath(fullRelPath) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		relPathFromRoot := filepath.Join(filepath.Base(root), relPath)
-
-		fmt.Fprintln(treeOutput, relPathFromRoot)
-
-		output.WriteString(relPathFromRoot + "\n")
+		fmt.Fprintln(treeOutput, fullRelPath)
+		output.WriteString(fullRelPath + "\n")
 
 		if !info.IsDir() {
-			*filePaths = append(*filePaths, relPathFromRoot)
+			*filePaths = append(*filePaths, fullRelPath)
 		}
 		return nil
 	})
@@ -198,10 +171,12 @@ func processDirectory(root string, ignorePatterns []string, output *strings.Buil
 	if err != nil {
 		fmt.Printf("Error walking the path %v: %v\n", root, err)
 	}
+
+	fmt.Fprintln(treeOutput)
 }
 
 func loadIgnorePatternsFromFiles(ignoreFiles []string) ([]string, error) {
-	var ignorePatterns []string
+	var patterns []string
 	cwd, err := os.Getwd()
 	if err != nil {
 		return nil, fmt.Errorf("error getting current working directory: %v", err)
@@ -222,7 +197,7 @@ func loadIgnorePatternsFromFiles(ignoreFiles []string) ([]string, error) {
 		for scanner.Scan() {
 			line := strings.TrimSpace(scanner.Text())
 			if line != "" && !strings.HasPrefix(line, "#") {
-				ignorePatterns = append(ignorePatterns, line)
+				patterns = append(patterns, line)
 			}
 		}
 
@@ -230,10 +205,10 @@ func loadIgnorePatternsFromFiles(ignoreFiles []string) ([]string, error) {
 			return nil, fmt.Errorf("error reading %s: %v", ignoreFile, err)
 		}
 	}
-	return ignorePatterns, nil
+	return patterns, nil
 }
 
-func printFileContents(filePath string, output *strings.Builder) {
+func appendFileContents(filePath string, output *strings.Builder) {
 	absPath, err := filepath.Abs(filePath)
 	if err != nil {
 		fmt.Printf("Error getting absolute path for %s: %v\n", filePath, err)
@@ -247,15 +222,27 @@ func printFileContents(filePath string, output *strings.Builder) {
 	}
 
 	output.WriteString("\t<document>\n")
-	output.WriteString("\t\t<source>" + filePath + "</source>\n")
+	fmt.Fprintf(output, "\t\t<source>%s</source>\n", filePath)
 	output.WriteString("\t\t<document_content>\n")
 	output.Write(content)
 	output.WriteString("\n\t\t</document_content>\n")
 	output.WriteString("\t</document>\n")
 }
 
-func handleFileOutput(output string, cfg config) {
-	if _, err := os.Stat(cfg.outputFile); err == nil && !cfg.forceOutputReplace {
+func handleOutput(output string, cfg config) {
+	if cfg.outputFile != "" {
+		writeToFile(output, cfg)
+	} else if !cfg.copyToClipboard {
+		fmt.Print(output)
+	}
+
+	if cfg.copyToClipboard {
+		copyToClipboard(output, cfg.maxClipboardSize)
+	}
+}
+
+func writeToFile(output string, cfg config) {
+	if !cfg.forceOutputReplace && fileExists(cfg.outputFile) {
 		if !promptReplace(cfg.outputFile) {
 			fmt.Println("Operation cancelled.")
 			return
@@ -271,6 +258,11 @@ func handleFileOutput(output string, cfg config) {
 	fmt.Printf("\nOutput written to %s\n", cfg.outputFile)
 }
 
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func promptReplace(filePath string) bool {
 	reader := bufio.NewReader(os.Stdin)
 	fmt.Printf("File %s already exists. Replace? (y/N): ", filePath)
@@ -279,12 +271,23 @@ func promptReplace(filePath string) bool {
 	return response == "y" || response == "yes"
 }
 
-type stringSliceFlag []string
+func copyToClipboard(output string, maxSize int) {
+	if len(output) > maxSize {
+		fmt.Printf("Error: Output size (%d) exceeds the maximum clipboard size (%d)\n", len(output), maxSize)
+		return
+	}
 
-func (i *stringSliceFlag) String() string {
-	return strings.Join(*i, ", ")
+	if err := clipboard.WriteAll(output); err != nil {
+		fmt.Printf("Failed to copy to clipboard: %v\n", err)
+		return
+	}
+
+	fmt.Printf("Output (%d characters) has been copied to clipboard.\n", len(output))
 }
 
+type stringSliceFlag []string
+
+func (i *stringSliceFlag) String() string { return strings.Join(*i, ", ") }
 func (i *stringSliceFlag) Set(value string) error {
 	*i = append(*i, value)
 	return nil
