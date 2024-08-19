@@ -159,29 +159,33 @@ func formatOutput(cfg config, ignorePatterns []string) string {
 func processDirectory(root string, ignorePatterns []string, output *strings.Builder, filePaths *[]string) {
 	ignoreParser := ignore.CompileIgnoreLines(ignorePatterns...)
 
-	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		fmt.Printf("Error getting absolute path for %s: %v\n", root, err)
+		return
+	}
+
+	err = filepath.Walk(absRoot, func(path string, info os.FileInfo, err error) error {
+		if err != nil || path == absRoot {
+			return err
+		}
+
+		relPath, err := filepath.Rel(absRoot, path)
 		if err != nil {
 			return err
 		}
 
-		if ignoreParser.MatchesPath(path) {
+		if ignoreParser.MatchesPath(relPath) {
 			if info.IsDir() {
 				return filepath.SkipDir
 			}
 			return nil
 		}
 
-		relPath, err := filepath.Rel(root, path)
-		if err != nil {
-			return err
-		}
-
-		if path != root {
-			path = ensureRelativePath(relPath)
-			output.WriteString(path + "\n")
-			if !info.IsDir() {
-				*filePaths = append(*filePaths, path)
-			}
+		relPathFromRoot := filepath.Join(root, relPath)
+		output.WriteString(relPathFromRoot + "\n")
+		if !info.IsDir() {
+			*filePaths = append(*filePaths, relPathFromRoot)
 		}
 		return nil
 	})
@@ -224,15 +228,14 @@ func loadIgnorePatternsFromFiles(ignoreFiles []string) ([]string, error) {
 	return ignorePatterns, nil
 }
 
-func ensureRelativePath(path string) string {
-	if !strings.HasPrefix(path, "./") {
-		return "./" + path
-	}
-	return path
-}
-
 func printFileContents(filePath string, output *strings.Builder) {
-	content, err := os.ReadFile(filePath)
+	absPath, err := filepath.Abs(filePath)
+	if err != nil {
+		fmt.Printf("Error getting absolute path for %s: %v\n", filePath, err)
+		return
+	}
+
+	content, err := os.ReadFile(absPath)
 	if err != nil {
 		fmt.Printf("Error reading file %s: %v\n", filePath, err)
 		return
