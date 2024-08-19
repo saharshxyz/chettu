@@ -54,7 +54,19 @@ func main() {
 		cfg.directories = append(cfg.directories, ".")
 	}
 
-	formattedOutput := formatOutput(cfg)
+	if len(cfg.ignoreFiles) == 0 {
+		cfg.ignoreFiles = append(cfg.ignoreFiles, defaultIgnoreFile)
+	}
+
+	ignorePatterns, err := loadIgnorePatternsFromFiles(cfg.ignoreFiles)
+	if err != nil {
+		fmt.Printf("Error loading ignore patterns: %v\n", err)
+		return
+	}
+
+	ignorePatterns = append(ignorePatterns, cfg.ignorePaths.ToSlice()...)
+
+	formattedOutput := formatOutput(cfg, ignorePatterns)
 
 	if cfg.outputFile != "" {
 		handleFileOutput(formattedOutput, cfg)
@@ -123,14 +135,14 @@ func handleClipboardCopy(output string, cfg config) {
 	fmt.Printf("Output (%d length) has been copied to clipboard.\n", len(output))
 }
 
-func formatOutput(cfg config) string {
+func formatOutput(cfg config, ignorePatterns []string) string {
 	var output strings.Builder
 	var filePaths []string
 
 	output.WriteString("<documents>\n")
 
 	for _, root := range cfg.directories {
-		processDirectory(root, cfg.ignorePaths.ToSlice(), cfg.ignoreFiles, &output, &filePaths)
+		processDirectory(root, ignorePatterns, &output, &filePaths)
 	}
 
 	output.WriteString("\n")
@@ -144,12 +156,7 @@ func formatOutput(cfg config) string {
 	return output.String()
 }
 
-func processDirectory(root string, ignorePatterns []string, ignoreFiles []string, output *strings.Builder, filePaths *[]string) {
-	if len(ignoreFiles) == 0 {
-		ignoreFiles = append(ignoreFiles, defaultIgnoreFile)
-	}
-
-	ignorePatterns = appendIgnorePatternsFromFiles(root, ignoreFiles, ignorePatterns)
+func processDirectory(root string, ignorePatterns []string, output *strings.Builder, filePaths *[]string) {
 	ignoreParser := ignore.CompileIgnoreLines(ignorePatterns...)
 
 	err := filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
@@ -182,17 +189,21 @@ func processDirectory(root string, ignorePatterns []string, ignoreFiles []string
 	}
 }
 
-func appendIgnorePatternsFromFiles(root string, ignoreFiles, ignorePatterns []string) []string {
-	for _, ignoreFile := range ignoreFiles {
-		ignorePath := filepath.Join(root, ignoreFile)
-		if _, err := os.Stat(ignorePath); err != nil {
-			continue
-		}
+func loadIgnorePatternsFromFiles(ignoreFiles []string) ([]string, error) {
+	var ignorePatterns []string
+	cwd, err := os.Getwd()
+	if err != nil {
+		return nil, fmt.Errorf("error getting current working directory: %v", err)
+	}
 
+	for _, ignoreFile := range ignoreFiles {
+		ignorePath := filepath.Join(cwd, ignoreFile)
 		file, err := os.Open(ignorePath)
 		if err != nil {
-			fmt.Printf("Error opening %s in %s: %v\n", ignoreFile, root, err)
-			continue
+			if os.IsNotExist(err) {
+				continue // Skip if file doesn't exist
+			}
+			return nil, fmt.Errorf("error opening %s: %v", ignoreFile, err)
 		}
 		defer file.Close()
 
@@ -205,10 +216,10 @@ func appendIgnorePatternsFromFiles(root string, ignoreFiles, ignorePatterns []st
 		}
 
 		if err := scanner.Err(); err != nil {
-			fmt.Printf("Error reading %s in %s: %v\n", ignoreFile, root, err)
+			return nil, fmt.Errorf("error reading %s: %v", ignoreFile, err)
 		}
 	}
-	return ignorePatterns
+	return ignorePatterns, nil
 }
 
 func ensureRelativePath(path string) string {
