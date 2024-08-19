@@ -27,6 +27,7 @@ type config struct {
 	copyToClipboard    bool
 	outputFile         string
 	forceOutputReplace bool
+	generateFullTree   bool
 }
 
 type stringSet map[string]struct{}
@@ -67,11 +68,13 @@ func parseFlags() config {
 	flag.Func("c", "Enable clipboard copy with optional max size (default: 50000)", parseClipboardFlag(&cfg))
 	flag.StringVar(&cfg.outputFile, "output-file", "", "Output file path")
 	flag.BoolVar(&cfg.forceOutputReplace, "force-replace-output", false, "Force replace existing output file without prompting")
+	flag.BoolVar(&cfg.generateFullTree, "t", false, "Generate full tree structure (must be used with -d and either -c or -output-file)")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\nUse -c without a value to copy with default max size (%d)\n", defaultMaxClipboardSize)
+		fmt.Fprintf(os.Stderr, "  -t\tGenerate full tree structure (must be used with -d and either -c or -output-file)\n")
 	}
 
 	flag.Parse()
@@ -80,6 +83,19 @@ func parseFlags() config {
 		fmt.Println("Error: -force-replace-output flag requires -output-file to be specified")
 		flag.Usage()
 		os.Exit(1)
+	}
+
+	if cfg.generateFullTree {
+		if len(cfg.directories) == 0 {
+			fmt.Println("Error: -t flag requires -d to be specified")
+			flag.Usage()
+			os.Exit(1)
+		}
+		if !cfg.copyToClipboard && cfg.outputFile == "" {
+			fmt.Println("Error: -t flag requires either -c or -output-file to be specified")
+			flag.Usage()
+			os.Exit(1)
+		}
 	}
 
 	return cfg
@@ -125,10 +141,14 @@ func generateOutput(cfg config, ignorePatterns []string) string {
 	output.WriteString("<documents>\n")
 
 	for _, root := range cfg.directories {
-		processDirectory(root, ignorePatterns, &output, &filePaths, os.Stdout)
+		processDirectory(root, ignorePatterns, &output, &filePaths, os.Stdout, cfg.generateFullTree)
 	}
 
-	output.WriteString("\n")
+	if cfg.generateFullTree {
+		generateFullTree(cfg, ignorePatterns, &output, &filePaths)
+	} else {
+		output.WriteString("\n")
+	}
 
 	for _, filePath := range filePaths {
 		appendFileContents(filePath, &output)
@@ -139,7 +159,7 @@ func generateOutput(cfg config, ignorePatterns []string) string {
 	return output.String()
 }
 
-func processDirectory(root string, ignorePatterns []string, output *strings.Builder, filePaths *[]string, treeOutput io.Writer) {
+func processDirectory(root string, ignorePatterns []string, output *strings.Builder, filePaths *[]string, treeOutput io.Writer, generateFullTree bool) {
 	ignoreParser := ignore.CompileIgnoreLines(ignorePatterns...)
 
 	absRoot, err := filepath.Abs(root)
@@ -166,7 +186,11 @@ func processDirectory(root string, ignorePatterns []string, output *strings.Buil
 			return nil
 		}
 
-		fmt.Fprintln(treeOutput, fullRelPath)
+		if generateFullTree {
+			fmt.Fprintln(treeOutput, fullRelPath)
+		} else {
+			fmt.Fprintln(treeOutput, filepath.Base(fullRelPath))
+		}
 		output.WriteString(fullRelPath + "\n")
 
 		if !info.IsDir() {
@@ -180,6 +204,23 @@ func processDirectory(root string, ignorePatterns []string, output *strings.Buil
 	}
 
 	fmt.Fprintln(treeOutput)
+}
+
+func generateFullTree(cfg config, ignorePatterns []string, output *strings.Builder, filePaths *[]string) {
+	_, err := os.Getwd()
+	if err != nil {
+		fmt.Printf("Error getting current working directory: %v\n", err)
+		return
+	}
+
+	var treeOutput strings.Builder
+	for _, root := range cfg.directories {
+		processDirectory(root, ignorePatterns, output, filePaths, &treeOutput, true)
+	}
+
+	output.WriteString("\n<tree>\n")
+	output.WriteString(treeOutput.String())
+	output.WriteString("</tree>\n\n")
 }
 
 func loadIgnorePatternsFromFiles(ignoreFiles []string) ([]string, error) {
@@ -240,10 +281,12 @@ func handleOutput(output string, cfg config) {
 	if cfg.outputFile != "" {
 		writeToFile(output, cfg)
 	} else if !cfg.copyToClipboard {
-		fmt.Print(output)
+		if !cfg.generateFullTree {
+			fmt.Print(output)
+		}
 	}
 
-	if cfg.copyToClipboard {
+	if cfg.copyToClipboard || cfg.generateFullTree {
 		copyToClipboard(output, cfg.maxClipboardSize)
 	}
 }
