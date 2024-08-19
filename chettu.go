@@ -16,8 +16,9 @@ import (
 
 const (
 	defaultMaxClipboardSize = 500000
-	defaultIgnoreFile       = ".gitignore"
 )
+
+var defaultIgnoreFiles = []string{".gitignore", ".chettuignore"}
 
 type config struct {
 	ignorePaths        stringSet
@@ -106,7 +107,7 @@ func setDefaultValues(cfg *config) {
 		cfg.directories = []string{"."}
 	}
 	if len(cfg.ignoreFiles) == 0 {
-		cfg.ignoreFiles = []string{defaultIgnoreFile}
+		cfg.ignoreFiles = defaultIgnoreFiles
 	}
 }
 
