@@ -31,11 +31,11 @@ Specifies paths to ignore. Can be used multiple times.
 - Example: `-i "*.log" -i "tmp/"`
 - Note: If no ignore patterns or files are specified, it will attempt to use .gitignore in the current directory.
 
-### `-ignore-file <file_path>`
+### `-if <file_path>`
 Specifies files containing ignore patterns (similar to .gitignore). Can be used multiple times.
 - Default: `".gitignore"`
-- Use `-ignore-file ""` to prevent loading any ignore files.
-- Example: `-ignore-file .customignore`
+- Use `-if ""` to prevent loading any ignore files.
+- Example: `-if .customignore`
 - Note: If no ignore patterns or files are specified, it will attempt to use .gitignore in the current directory.
 
 ### `-c [max_size]`
@@ -45,15 +45,15 @@ Enables clipboard copy with an optional maximum size.
 - Example with custom size: `-c 1000000`
 - Note: The clipboard feature may not work on all operating systems. Ensure you have the necessary dependencies installed.
 
-### `-output-file <file_path>`
+### `-of <file_path>`
 Specifies the output file path. If not provided, output is printed to stdout (unless `-c` is used).
-- Example: `-output-file output.xml`
-- Note: When using this flag without `-force-replace-output`, the script will prompt before overwriting an existing file.
+- Example: `-of output.xml`
+- Note: When using this flag without `-ofr`, the script will prompt before overwriting an existing file.
 
-### `-force-replace-output`
+### `-ofr`
 Forces replacement of an existing output file without prompting.
-- Must be used with `-output-file`.
-- Example: `-output-file output.xml -force-replace-output`
+- Must be used with `-of`.
+- Example: `-of output.xml -ofr`
 
 ## Output Format
 
@@ -89,15 +89,15 @@ Chettu generates output in an XML-like format:
 
 2. Process multiple directories, ignore specific patterns, and copy to clipboard:
    ```
-   go run chettu.go -d ./src -d ./tests -i "*.log" -i "tmp/" -c
+   go run chettu.go -d ./src -d ./tests -i "*.log" -i "tmp/" -c=
    ```
 
 3. Use a custom ignore file and write output to a file:
    ```
-   go run chettu.go -ignore-file .customignore -output-file output.xml
+   go run chettu.go -if .customignore -of output.xml
    ```
 
 4. Process a specific directory, clear default ignores, and force replace output file:
    ```
-   go run chettu.go -d ./project -i "" -output-file output.xml -force-replace-output
+   go run chettu.go -d ./project -i "" -of output.xml -ofr
    ```

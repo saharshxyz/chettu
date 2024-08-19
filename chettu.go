@@ -62,11 +62,11 @@ func parseFlags() config {
 		cfg.ignorePaths.Add(value)
 		return nil
 	})
+	flag.Var((*stringSliceFlag)(&cfg.ignoreFiles), "if", "Files containing ignore patterns (can be used multiple times, default: .gitignore). Use -if \"\" to prevent loading any ignore files.")
 	flag.Var((*stringSliceFlag)(&cfg.directories), "d", "Directories to process (can be used multiple times)")
-	flag.Var((*stringSliceFlag)(&cfg.ignoreFiles), "ignore-file", "Files containing ignore patterns (can be used multiple times, default: .gitignore). Use -ignore-file \"\" to prevent loading any ignore files.")
 	flag.Func("c", "Enable clipboard copy with optional max size (default: 50000)", parseClipboardFlag(&cfg))
-	flag.StringVar(&cfg.outputFile, "output-file", "", "Output file path")
-	flag.BoolVar(&cfg.forceOutputReplace, "force-replace-output", false, "Force replace existing output file without prompting")
+	flag.StringVar(&cfg.outputFile, "of", "", "Output file path")
+	flag.BoolVar(&cfg.forceOutputReplace, "ofr", false, "Force replace existing output file without prompting")
 
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
@@ -77,7 +77,7 @@ func parseFlags() config {
 	flag.Parse()
 
 	if cfg.forceOutputReplace && cfg.outputFile == "" {
-		fmt.Println("Error: -force-replace-output flag requires -output-file to be specified")
+		fmt.Println("Error: -ofr flag requires -of to be specified")
 		flag.Usage()
 		os.Exit(1)
 	}
