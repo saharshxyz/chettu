@@ -130,7 +130,7 @@ func formatOutput(cfg config) string {
 		printFileContents(filePath, &output)
 	}
 
-	output.WriteString("</documents>")
+	output.WriteString("</documents>\n")
 
 	return output.String()
 }
