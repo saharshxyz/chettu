@@ -268,7 +268,7 @@ func handleFileOutput(output string, cfg config) {
 		return
 	}
 
-	fmt.Printf("Output written to %s\n", cfg.outputFile)
+	fmt.Printf("\nOutput written to %s\n", cfg.outputFile)
 }
 
 func promptReplace(filePath string) bool {
