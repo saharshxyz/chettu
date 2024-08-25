@@ -17,7 +17,6 @@ var (
 
 func init() {
 	fmt.Println(("Running chettu"))
-
 }
 
 func main() {
@@ -36,39 +35,41 @@ func handleError(message string, err error) {
 	}
 }
 
-func compileIgnore(files []string, lines []string) *ignore.GitIgnore {
-	tmpFile, err := os.CreateTemp("", ".ignore*")
-	handleError("Error creating temporary ignore file", err)
-	defer os.Remove(tmpFile.Name())
+func compileIgnore(files, lines []string) *ignore.GitIgnore {
+	createIgnoreFile := func(files, lines []string) (string, func()) {
+		tmpFile, err := os.CreateTemp("", ".tmpChettuIgnore*")
+		handleError("Error creating temporary ignore file", err)
 
-	var content []byte
-
-	for _, file := range files {
-		if fileContent, err := os.ReadFile(file); err != nil {
-			fmt.Printf("Error reading file: %v\n", err)
-		} else {
-			content = append(content, fileContent...)
-			content = append(content, '\n')
+		cleanup := func() {
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
 		}
+
+		var content []byte
+
+		for _, file := range files {
+			if fileContent, err := os.ReadFile(file); err == nil {
+				content = append(content, []byte("#"+file+"\n")...)
+				content = append(content, fileContent...)
+				content = append(content, '\n', '\n')
+			}
+		}
+
+		content = append(content, []byte("# ignore lines"+"\n")...)
+		for _, line := range append(lines, files...) {
+			content = append(content, []byte(line+"\n")...)
+		}
+
+		handleError("Error writing to temporary file", os.WriteFile(tmpFile.Name(), content, 0644))
+		handleError("Error closing temporary file", tmpFile.Close())
+
+		return tmpFile.Name(), cleanup
 	}
 
-	for _, line := range lines {
-		content = append(content, []byte(line+"\n")...)
-	}
+	fileName, tmpIgnoreFileCleanup := createIgnoreFile(files, lines)
+	defer tmpIgnoreFileCleanup()
 
-	for _, fileName := range files {
-		content = append(content, []byte(fileName+"\n")...)
-	}
-
-	if err := os.WriteFile(tmpFile.Name(), content, 0644); err != nil {
-		handleError("Error writing to temporary file", err)
-	}
-
-	if err := tmpFile.Close(); err != nil {
-		handleError("Error closing temporary file", err)
-	}
-
-	ignored, err := ignore.CompileIgnoreFile(tmpFile.Name())
+	ignored, err := ignore.CompileIgnoreFile(fileName)
 	handleError("Unable to compile ignore file", err)
 
 	return ignored
@@ -88,7 +89,6 @@ func printDir(dir string) {
 
 	entries, err := os.ReadDir(dir)
 	handleError("Error reading directory", err)
-
 	for _, entry := range entries {
 		path := filepath.Join(dir, entry.Name())
 
