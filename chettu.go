@@ -1,9 +1,12 @@
 package main
 
 import (
+	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"text/template"
 
 	ignore "github.com/sabhiram/go-gitignore"
 )
@@ -12,19 +15,68 @@ var (
 	ignoreFiles = []string{".gitignore", ".chettuignore"}
 	ignoreLines = []string{".git"}
 	dirs        = []string{"./"}
-	ignored     *ignore.GitIgnore
 )
+
+type Project struct {
+	XMLName  xml.Name `xml:"project"`
+	FileTree []string `xml:"file_tree>file_path"`
+	Files    []File   `xml:"file"`
+}
+
+type File struct {
+	Path    string `xml:"file_path"`
+	Content string `xml:"file_content"`
+}
 
 func init() {
 	fmt.Println(("Running chettu"))
 }
 
 func main() {
+	ignored := compileIgnore(ignoreFiles, ignoreLines)
 
-	ignored = compileIgnore(ignoreFiles, ignoreLines)
+	project := genProject(dirs, ignored)
 
-	for _, dir := range dirs {
-		printDir(dir)
+	printProject(project)
+
+}
+
+func printProject(project Project) {
+	indentContent := func(content, indent string) string {
+		lines := strings.Split(content, "\n")
+		for i, line := range lines {
+			if line != "" {
+				lines[i] = indent + line
+			}
+		}
+		return strings.Join(lines, "\n")
+	}
+
+	funcMap := template.FuncMap{
+		"indent": func(content string) string {
+			return indentContent(content, "\t\t")
+		},
+	}
+
+	tmpl := `<project>
+<file_tree>
+	{{- range .FileTree}}
+	<file_path>{{.}}</file_path>
+	{{- end}}
+</file_tree>
+{{- range .Files}}
+<file>
+	<file_path>{{.Path}}</file_path>
+	<file_content>
+{{indent .Content}}
+	</file_content>
+</file>
+{{- end}}
+</project>`
+
+	t := template.Must(template.New("project").Funcs(funcMap).Parse(tmpl))
+	if err := t.Execute(os.Stdout, project); err != nil {
+		fmt.Println("Error executing template:", err)
 	}
 }
 
@@ -75,29 +127,36 @@ func compileIgnore(files, lines []string) *ignore.GitIgnore {
 	return ignored
 }
 
-func printDir(dir string) {
-	isIgnored := func(path string) bool {
-		getAbsolutePath := func(path string) string {
-			absPath, err := filepath.Abs(path)
-			handleError("Error getting absolute filepath", err)
+func genProject(dirs []string, ignored *ignore.GitIgnore) Project {
+	var project Project
 
-			return absPath
-		}
+	for _, dir := range dirs {
+		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			handleError("Error walking file", err)
 
-		return ignored.MatchesPath(getAbsolutePath(path))
-	}
-
-	entries, err := os.ReadDir(dir)
-	handleError("Error reading directory", err)
-	for _, entry := range entries {
-		path := filepath.Join(dir, entry.Name())
-
-		if !isIgnored(path) {
-			println(path)
-
-			if entry.IsDir() {
-				printDir(path)
+			if ignored.MatchesPath(path) {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
 			}
-		}
+
+			if !info.IsDir() {
+				project.FileTree = append(project.FileTree, path)
+
+				content, err := os.ReadFile(path)
+				handleError("Error reading file", err)
+
+				project.Files = append(project.Files, File{
+					Path:    path,
+					Content: string(content),
+				})
+			}
+
+			return nil
+		})
+		handleError("Error walking directory", err)
 	}
+
+	return project
 }
