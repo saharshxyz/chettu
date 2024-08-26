@@ -1,103 +1,139 @@
-# Chettu (చెట్టు) - File Tree Generator
+# Chettu (చెట్టు) - Project File Collector
 
-Chettu is a Go script that generates a structured output of file trees and their contents, with options for ignoring specific files/directories and controlling the output format.
+A Go-based command-line tool that generates an XML representation of your project's file structure and contents.
 
 ## Features
 
-- Traverse directories and generate a file tree
-- Include file contents in the output
-- Ignore files/directories based on patterns (similar to `.gitignore`)
-- Copy output to clipboard
-- Write output to a file
-- Customizable ignore patterns and files
+- Recursively scans specified directories
+- Generates an XML-like output containing file paths and contents
+- Supports custom ignore rules (based on `.gitignore`)
+- Can copy output to clipboard (with size limit)
+- Can write output to a file
+- Customizable through command-line flags
+
+## Installation
+
+To install Project File Collector, make sure you have Go installed on your system, then run:
+
+```
+go get github.com/saharshxyz/chettu
+```
 
 ## Usage
 
-```
-go run chettu.go [flags]
-```
+### Flags
 
-## Flags
+Chettu supports the following command-line flags:
 
-### `-d <directory>`
-Specifies directories to process. Can be used multiple times to process multiple directories.
-- Default: Current directory (`"."`)
-- Example: `-d ./src -d ./tests`
-- Note: The script uses absolute file paths internally but outputs relative paths.
+- `-l, --ignore-line <pattern>`: 
+  - Appends the specified pattern to the ignore lines.
+  - Can be used multiple times to add multiple patterns.
+  - Default: `.git`
 
-### `-i <ignore_pattern>`
-Specifies paths to ignore. Can be used multiple times.
-- Use `-i ""` to clear default ignore patterns.
-- Example: `-i "*.log" -i "tmp/"`
-- Note: If no ignore patterns or files are specified, it will attempt to use .gitignore in the current directory.
+- `-f, --ignore-file <file>`: 
+  - Appends the specified file to the list of ignore files.
+  - Can be used multiple times to add multiple files.
+  - Default: `[".gitignore", ".chettuignore"]`
 
-### `-if <file_path>`
-Specifies files containing ignore patterns (similar to .gitignore). Can be used multiple times.
-- Default: `".gitignore"`
-- Use `-if ""` to prevent loading any ignore files.
-- Example: `-if .customignore`
-- Note: If no ignore patterns or files are specified, it will attempt to use .gitignore in the current directory.
+- `-d, --directory <path>`: 
+  - Sets the directories to scan.
+  - Can be used multiple times to specify multiple directories.
+  - Default: `./` (current directory)
 
-### `-c [max_size]`
-Enables clipboard copy with an optional maximum size.
-- Default max size: `500000` characters
-- Use `-c` without a value to use the default max size
-- Example with custom size: `-c 1000000`
-- Note: The clipboard feature may not work on all operating systems. Ensure you have the necessary dependencies installed.
+- `--reset-ignore`: 
+  - Resets the ignore lists before appending new ignore patterns or files.
+  - Default: `false`
 
-### `-of <file_path>`
-Specifies the output file path. If not provided, output is printed to stdout (unless `-c` is used).
-- Example: `-of output.xml`
-- Note: When using this flag without `-ofr`, the script will prompt before overwriting an existing file.
+- `-c, --copy <size>`: 
+  - Enables clipboard copy with an optional maximum size (in bytes).
+  - If the output exceeds this size, it will not be copied to the clipboard.
+  - Default: 50000 (50KB)
 
-### `-ofr`
-Forces replacement of an existing output file without prompting.
-- Must be used with `-of`.
-- Example: `-of output.xml -ofr`
+- `-o, --output-file <path>`: 
+  - Specifies the output file path to write the XML content.
+  - If not provided, output is not written to a file.
+  - Default: "" (empty string, no file output)
 
-## Output Format
+- `-R, --output-file-replace`: 
+  - Forces replacement of the existing output file without prompting.
+  - Only applicable when `-o` flag is used.
+  - Default: `false`
 
-Chettu generates output in an XML-like format:
+### Examples
+
+1. Basic usage (scan current directory):
+   ```
+   chettu
+   ```
+
+2. Scan a specific directory:
+   ```
+   chettu -d /path/to/project
+   ```
+
+3. Scan multiple directories:
+   ```
+   chettu -d /path/to/project1 -d /path/to/project2
+   ```
+
+4. Add custom ignore patterns:
+   ```
+   chettu -l "*.log" -l "node_modules"
+   ```
+
+5. Use custom ignore files:
+   ```
+   chettu -f .customignore -f .projectignore
+   ```
+
+6. Reset default ignore rules and use only custom ones:
+   ```
+   chettu --reset-ignore -l "*.tmp" -f .customignore
+   ```
+
+7. Copy to clipboard with a 100KB limit:
+   ```
+   chettu -c 102400
+   ```
+
+8. Write output to a file:
+   ```
+   chettu -o project_structure.xml
+   ```
+
+9. Force overwrite existing output file:
+   ```
+   chettu -o project_structure.xml -R
+   ```
+
+10. Combine multiple options:
+    ```
+    chettu -d /path/to/project -l "*.log" -f .customignore -c 200000 -o output.xml
+    ```
+
+## Output
+
+The program generates an XML output with the following structure:
 
 ```xml
-<documents>
-<file_path1>
-<file_path2>
+<project>
+  <file_tree>
+    <file_path>path/to/file1</file_path>
+    <file_path>path/to/file2</file_path>
     ...
-    <document>
-        <source>file_path1</source>
-        <document_content>
-            [File contents here]
-        </document_content>
-    </document>
-    <document>
-        <source>file_path2</source>
-        <document_content>
-            [File contents here]
-        </document_content>
-    </document>
-    ...
-</documents>
+  </file_tree>
+  <file>
+    <file_path>path/to/file1</file_path>
+    <file_content>
+      // File contents here
+    </file_content>
+  </file>
+  ...
+</project>
 ```
 
-## Examples
+## Dependencies
 
-1. Process current directory, use default .gitignore, and print to stdout:
-   ```
-   go run chettu.go
-   ```
-
-2. Process multiple directories, ignore specific patterns, and copy to clipboard:
-   ```
-   go run chettu.go -d ./src -d ./tests -i "*.log" -i "tmp/" -c=
-   ```
-
-3. Use a custom ignore file and write output to a file:
-   ```
-   go run chettu.go -if .customignore -of output.xml
-   ```
-
-4. Process a specific directory, clear default ignores, and force replace output file:
-   ```
-   go run chettu.go -d ./project -i "" -of output.xml -ofr
-   ```
+- github.com/atotto/clipboard
+- github.com/sabhiram/go-gitignore
+- github.com/spf13/pflag

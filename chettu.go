@@ -1,302 +1,277 @@
 package main
 
 import (
-	"bufio"
-	"flag"
+	"encoding/xml"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
+	"text/template"
 
 	"github.com/atotto/clipboard"
 	ignore "github.com/sabhiram/go-gitignore"
+	"github.com/spf13/pflag"
 )
 
-const (
-	defaultMaxClipboardSize = 500000
-)
-
-var defaultIgnoreFiles = []string{".gitignore", ".chettuignore"}
-
-type config struct {
-	ignorePaths        stringSet
-	directories        []string
-	ignoreFiles        []string
-	maxClipboardSize   int
-	copyToClipboard    bool
-	outputFile         string
-	forceOutputReplace bool
+// Types
+type Config struct {
+	IgnoreFiles  []string
+	IgnoreLines  []string
+	Directories  []string
+	ResetIgnore  bool
+	MaxCopySize  int64
+	OutputFile   string
+	ForceReplace bool
 }
 
-type stringSet map[string]struct{}
-
-func (s stringSet) Add(value string)           { s[value] = struct{}{} }
-func (s stringSet) Contains(value string) bool { _, ok := s[value]; return ok }
-func (s stringSet) ToSlice() []string {
-	result := make([]string, 0, len(s))
-	for k := range s {
-		result = append(result, k)
-	}
-	return result
+type Project struct {
+	XMLName  xml.Name `xml:"project"`
+	FileTree []string `xml:"file_tree>file_path"`
+	Files    []File   `xml:"file"`
 }
+
+type File struct {
+	Path    string `xml:"file_path"`
+	Content string `xml:"file_content"`
+}
+
+// Constants
+var defaultConfig = Config{
+	IgnoreFiles:  []string{".gitignore", ".chettuignore"},
+	IgnoreLines:  []string{".git"},
+	Directories:  []string{"./"},
+	ResetIgnore:  false,
+	MaxCopySize:  50000,
+	OutputFile:   "",
+	ForceReplace: false,
+}
+
+// Main function
 
 func main() {
-	cfg := parseFlags()
-	setDefaultValues(&cfg)
-
-	ignorePatterns, err := loadIgnorePatterns(cfg.ignoreFiles, cfg.ignorePaths)
-	if err != nil {
-		fmt.Printf("Error loading ignore patterns: %v\n", err)
-		return
-	}
-
-	output := generateOutput(cfg, ignorePatterns)
-	handleOutput(output, cfg)
+	config := parseFlags()
+	ignored, config := setupProject(config)
+	run(config, ignored)
 }
 
-func parseFlags() config {
-	cfg := config{ignorePaths: make(stringSet)}
+// Core functionality
+func run(config Config, ignored *ignore.GitIgnore) {
+	project := genProject(config.Directories, ignored)
+	output := generateOutput(project)
 
-	flag.Func("i", "Paths to ignore (can be used multiple times). Use -i \"\" to clear default ignore patterns.", func(value string) error {
-		cfg.ignorePaths.Add(value)
-		return nil
-	})
-	flag.Var((*stringSliceFlag)(&cfg.ignoreFiles), "if", "Files containing ignore patterns (can be used multiple times, default: .gitignore). Use -if \"\" to prevent loading any ignore files.")
-	flag.Var((*stringSliceFlag)(&cfg.directories), "d", "Directories to process (can be used multiple times)")
-	flag.Func("c", "Enable clipboard copy with optional max size (default: 50000)", parseClipboardFlag(&cfg))
-	flag.StringVar(&cfg.outputFile, "of", "", "Output file path")
-	flag.BoolVar(&cfg.forceOutputReplace, "ofr", false, "Force replace existing output file without prompting")
-
-	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "Usage of %s:\n", os.Args[0])
-		flag.PrintDefaults()
-		fmt.Fprintf(os.Stderr, "\nUse -c without a value to copy with default max size (%d)\n", defaultMaxClipboardSize)
+	if config.OutputFile != "" {
+		writeToFile(output, config.OutputFile, config.ForceReplace)
 	}
 
-	flag.Parse()
+	if config.MaxCopySize > 0 {
+		copyToClipboard(output, config.MaxCopySize)
+	}
+}
 
-	if cfg.forceOutputReplace && cfg.outputFile == "" {
-		fmt.Println("Error: -ofr flag requires -of to be specified")
-		flag.Usage()
+func genProject(dirs []string, ignored *ignore.GitIgnore) Project {
+	var project Project
+
+	for _, dir := range dirs {
+		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+			handleError("Error walking file", err)
+
+			if ignored.MatchesPath(path) {
+				if info.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
+			if !info.IsDir() {
+				project.FileTree = append(project.FileTree, path)
+				fmt.Println(path)
+
+				content, err := os.ReadFile(path)
+				handleError("Error reading file", err)
+
+				project.Files = append(project.Files, File{
+					Path:    path,
+					Content: string(content),
+				})
+			}
+
+			return nil
+		})
+		handleError("Error walking directory", err)
+	}
+
+	return project
+}
+
+// Configuration and setup
+func parseFlags() Config {
+	ignoreLine := pflag.StringArrayP("ignore-line", "l", defaultConfig.IgnoreLines, "Append to ignore lines")
+	ignoreFile := pflag.StringArrayP("ignore-file", "f", defaultConfig.IgnoreFiles, "Append to ignore files")
+	directory := pflag.StringArrayP("directory", "d", defaultConfig.Directories, "Set directories")
+	resetIgnore := pflag.Bool("reset-ignore", defaultConfig.ResetIgnore, "Reset ignore lists before appending")
+	maxCopySize := pflag.Int64P("copy", "c", defaultConfig.MaxCopySize, "Enable clipboard copy with optional maximum size")
+	outputFile := pflag.StringP("output-file", "o", defaultConfig.OutputFile, "Specify the output file path")
+	forceReplace := pflag.BoolP("output-file-replace", "R", defaultConfig.ForceReplace, "Force replacement of existing output file")
+
+	pflag.Parse()
+
+	if *forceReplace && *outputFile == "" {
+		fmt.Fprintln(os.Stderr, "Error: The -R (force replace) flag requires the -o (output file) flag to be specified.")
 		os.Exit(1)
 	}
 
-	return cfg
-}
-
-func parseClipboardFlag(cfg *config) func(string) error {
-	return func(flagValue string) error {
-		cfg.copyToClipboard = true
-		if flagValue == "" {
-			cfg.maxClipboardSize = defaultMaxClipboardSize
-			return nil
-		}
-		var err error
-		cfg.maxClipboardSize, err = strconv.Atoi(flagValue)
-		if err != nil {
-			return fmt.Errorf("invalid value for -c: %v", err)
-		}
-		return nil
+	return Config{
+		IgnoreFiles:  *ignoreFile,
+		IgnoreLines:  *ignoreLine,
+		Directories:  *directory,
+		ResetIgnore:  *resetIgnore,
+		MaxCopySize:  *maxCopySize,
+		OutputFile:   *outputFile,
+		ForceReplace: *forceReplace,
 	}
 }
 
-func setDefaultValues(cfg *config) {
-	if len(cfg.directories) == 0 {
-		cfg.directories = []string{"."}
-	}
-	if len(cfg.ignoreFiles) == 0 {
-		cfg.ignoreFiles = defaultIgnoreFiles
-	}
+func setupProject(config Config) (*ignore.GitIgnore, Config) {
+	ignoreFiles, ignoreLines := processIgnoreFlags(config)
+	ignored := compileIgnore(ignoreFiles, ignoreLines)
+	return ignored, config
 }
 
-func loadIgnorePatterns(ignoreFiles []string, ignorePaths stringSet) ([]string, error) {
-	patterns, err := loadIgnorePatternsFromFiles(ignoreFiles)
-	if err != nil {
-		return nil, err
+func processIgnoreFlags(config Config) ([]string, []string) {
+	var ignoreFiles, ignoreLines []string
+
+	if !config.ResetIgnore {
+		ignoreFiles = defaultConfig.IgnoreFiles
+		ignoreLines = defaultConfig.IgnoreLines
 	}
-	return append(patterns, ignorePaths.ToSlice()...), nil
+
+	ignoreLines = append(ignoreLines, config.IgnoreLines...)
+	ignoreFiles = append(ignoreFiles, config.IgnoreFiles...)
+
+	return ignoreFiles, ignoreLines
 }
 
-func generateOutput(cfg config, ignorePatterns []string) string {
-	var output strings.Builder
-	var filePaths []string
+func compileIgnore(files, lines []string) *ignore.GitIgnore {
+	createIgnoreFile := func(files, lines []string) (string, func()) {
+		tmpFile, err := os.CreateTemp("", ".tmpChettuIgnore*")
+		handleError("Error creating temporary ignore file", err)
 
-	output.WriteString("<documents>\n")
-
-	for _, root := range cfg.directories {
-		processDirectory(root, ignorePatterns, &output, &filePaths, os.Stdout)
-	}
-
-	output.WriteString("\n")
-
-	for _, filePath := range filePaths {
-		appendFileContents(filePath, &output)
-	}
-
-	output.WriteString("</documents>\n")
-
-	return output.String()
-}
-
-func processDirectory(root string, ignorePatterns []string, output *strings.Builder, filePaths *[]string, treeOutput io.Writer) {
-	ignoreParser := ignore.CompileIgnoreLines(ignorePatterns...)
-
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		fmt.Printf("Error getting absolute path for %s: %v\n", root, err)
-		return
-	}
-
-	err = filepath.Walk(absRoot, func(path string, info os.FileInfo, err error) error {
-		if err != nil || path == absRoot {
-			return err
+		cleanup := func() {
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
 		}
 
-		relPath, err := filepath.Rel(absRoot, path)
-		if err != nil {
-			return err
-		}
+		var content []byte
 
-		fullRelPath := filepath.Join(filepath.Base(root), relPath)
-		if ignoreParser.MatchesPath(fullRelPath) {
-			if info.IsDir() {
-				return filepath.SkipDir
-			}
-			return nil
-		}
-
-		fmt.Fprintln(treeOutput, "./"+fullRelPath)
-		output.WriteString("./" + fullRelPath + "\n")
-
-		if !info.IsDir() {
-			*filePaths = append(*filePaths, fullRelPath)
-		}
-		return nil
-	})
-
-	if err != nil {
-		fmt.Printf("Error walking the path %v: %v\n", root, err)
-	}
-
-	fmt.Fprintln(treeOutput)
-}
-
-func loadIgnorePatternsFromFiles(ignoreFiles []string) ([]string, error) {
-	var patterns []string
-	cwd, err := os.Getwd()
-	if err != nil {
-		return nil, fmt.Errorf("error getting current working directory: %v", err)
-	}
-
-	for _, ignoreFile := range ignoreFiles {
-		ignorePath := filepath.Join(cwd, ignoreFile)
-		file, err := os.Open(ignorePath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				continue // Skip if file doesn't exist
-			}
-			return nil, fmt.Errorf("error opening %s: %v", ignoreFile, err)
-		}
-		defer file.Close()
-
-		scanner := bufio.NewScanner(file)
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line != "" && !strings.HasPrefix(line, "#") {
-				patterns = append(patterns, line)
+		for _, file := range files {
+			if fileContent, err := os.ReadFile(file); err == nil {
+				content = append(content, []byte("#"+file+"\n")...)
+				content = append(content, fileContent...)
+				content = append(content, '\n', '\n')
 			}
 		}
 
-		if err := scanner.Err(); err != nil {
-			return nil, fmt.Errorf("error reading %s: %v", ignoreFile, err)
+		content = append(content, []byte("# ignore lines"+"\n")...)
+		for _, line := range append(lines, files...) {
+			content = append(content, []byte(line+"\n")...)
+		}
+
+		handleError("Error writing to temporary file", os.WriteFile(tmpFile.Name(), content, 0644))
+		handleError("Error closing temporary file", tmpFile.Close())
+
+		return tmpFile.Name(), cleanup
+	}
+
+	fileName, tmpIgnoreFileCleanup := createIgnoreFile(files, lines)
+	defer tmpIgnoreFileCleanup()
+
+	ignored, err := ignore.CompileIgnoreFile(fileName)
+	handleError("Unable to compile ignore file", err)
+
+	return ignored
+}
+
+// Output generation
+func generateOutput(project Project) string {
+	funcMap := template.FuncMap{
+		"indent": func(content string) string {
+			return indentContent(content, "\t\t")
+		},
+	}
+
+	tmpl := `<project>
+<file_tree>
+	{{- range .FileTree}}
+	<file_path>{{.}}</file_path>
+	{{- end}}
+</file_tree>
+{{- range .Files}}
+<file>
+	<file_path>{{.Path}}</file_path>
+	<file_content>
+{{indent .Content}}
+	</file_content>
+</file>
+{{- end}}
+</project>`
+
+	t := template.Must(template.New("project").Funcs(funcMap).Parse(tmpl))
+	var buffer strings.Builder
+	if err := t.Execute(&buffer, project); err != nil {
+		handleError("Error executing template", err)
+	}
+	return buffer.String()
+}
+
+func indentContent(content, indent string) string {
+	lines := strings.Split(content, "\n")
+	for i, line := range lines {
+		if line != "" {
+			lines[i] = indent + line
 		}
 	}
-	return patterns, nil
+	return strings.Join(lines, "\n")
 }
 
-func appendFileContents(filePath string, output *strings.Builder) {
-	absPath, err := filepath.Abs(filePath)
-	if err != nil {
-		fmt.Printf("Error getting absolute path for %s: %v\n", filePath, err)
-		return
-	}
+// File operations
+func writeToFile(content, filePath string, forceReplace bool) {
+	if !forceReplace && fileExists(filePath) {
+		fmt.Printf("File %s already exists. Overwrite? (y/N): ", filePath)
+		var response string
+		fmt.Scanln(&response)
 
-	content, err := os.ReadFile(absPath)
-	if err != nil {
-		fmt.Printf("Error reading file %s: %v\n", filePath, err)
-		return
-	}
-
-	output.WriteString("\t<document>\n")
-	fmt.Fprintf(output, "\t\t<source>%s</source>\n", filePath)
-	output.WriteString("\t\t<document_content>\n")
-	output.Write(content)
-	output.WriteString("\n\t\t</document_content>\n")
-	output.WriteString("\t</document>\n")
-}
-
-func handleOutput(output string, cfg config) {
-	if cfg.outputFile != "" {
-		writeToFile(output, cfg)
-	} else if !cfg.copyToClipboard {
-		fmt.Print(output)
-	}
-
-	if cfg.copyToClipboard {
-		copyToClipboard(output, cfg.maxClipboardSize)
-	}
-}
-
-func writeToFile(output string, cfg config) {
-	if !cfg.forceOutputReplace && fileExists(cfg.outputFile) {
-		if !promptReplace(cfg.outputFile) {
+		if strings.ToLower(response) != "y" {
 			fmt.Println("Operation cancelled.")
 			return
 		}
 	}
 
-	err := os.WriteFile(cfg.outputFile, []byte(output), 0644)
+	err := os.WriteFile(filePath, []byte(content), 0644)
+	handleError("Error writing to file", err)
+
+	fmt.Printf("Output written to %s\n", filePath)
+}
+
+func copyToClipboard(content string, maxCopySize int64) {
+	if contentSize := int64(len(content)); contentSize > maxCopySize {
+		fmt.Fprintf(os.Stderr, "\nError: content size (%d) is greater than max copy size (%d)\n", contentSize, maxCopySize)
+	} else {
+		err := clipboard.WriteAll(content)
+		handleError("Error copying to clipboard", err)
+
+		fmt.Printf("\nOutput(%d) copied to clipboard\n", contentSize)
+	}
+}
+
+// Utility functions
+func fileExists(filePath string) bool {
+	_, err := os.Stat(filePath)
+	return !os.IsNotExist(err)
+}
+
+func handleError(message string, err error) {
 	if err != nil {
-		fmt.Printf("Error writing to output file: %v\n", err)
-		return
+		fmt.Fprintf(os.Stderr, "\n%s: %v\n", message, err)
+		os.Exit(1)
 	}
-
-	fmt.Printf("\nOutput written to %s\n", cfg.outputFile)
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-func promptReplace(filePath string) bool {
-	reader := bufio.NewReader(os.Stdin)
-	fmt.Printf("File %s already exists. Replace? (y/N): ", filePath)
-	response, _ := reader.ReadString('\n')
-	response = strings.ToLower(strings.TrimSpace(response))
-	return response == "y" || response == "yes"
-}
-
-func copyToClipboard(output string, maxSize int) {
-	if len(output) > maxSize {
-		fmt.Printf("Error: Output size (%d) exceeds the maximum clipboard size (%d)\n", len(output), maxSize)
-		return
-	}
-
-	if err := clipboard.WriteAll(output); err != nil {
-		fmt.Printf("Failed to copy to clipboard: %v\n", err)
-		return
-	}
-
-	fmt.Printf("Output (%d characters) has been copied to clipboard.\n", len(output))
-}
-
-type stringSliceFlag []string
-
-func (i *stringSliceFlag) String() string { return strings.Join(*i, ", ") }
-func (i *stringSliceFlag) Set(value string) error {
-	*i = append(*i, value)
-	return nil
 }
