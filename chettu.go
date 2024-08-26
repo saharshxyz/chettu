@@ -8,14 +8,30 @@ import (
 	"strings"
 	"text/template"
 
+	"github.com/atotto/clipboard"
 	ignore "github.com/sabhiram/go-gitignore"
+	"github.com/spf13/pflag"
 )
 
-var (
-	ignoreFiles = []string{".gitignore", ".chettuignore"}
-	ignoreLines = []string{".git"}
-	dirs        = []string{"./"}
-)
+type Config struct {
+	IgnoreFiles  []string
+	IgnoreLines  []string
+	Directories  []string
+	ResetIgnore  bool
+	MaxCopySize  int64
+	OutputFile   string
+	ForceReplace bool
+}
+
+var defaultConfig = Config{
+	IgnoreFiles:  []string{".gitignore", ".chettuignore"},
+	IgnoreLines:  []string{".git"},
+	Directories:  []string{"./"},
+	ResetIgnore:  false,
+	MaxCopySize:  500000,
+	OutputFile:   "",
+	ForceReplace: false,
+}
 
 type Project struct {
 	XMLName  xml.Name `xml:"project"`
@@ -29,19 +45,66 @@ type File struct {
 }
 
 func init() {
-	fmt.Println(("Running chettu"))
+	fmt.Println("Running chettu")
 }
 
 func main() {
-	ignored := compileIgnore(ignoreFiles, ignoreLines)
-
-	project := genProject(dirs, ignored)
-
-	printProject(project)
-
+	config := parseFlags()
+	run(config)
 }
 
-func printProject(project Project) {
+func parseFlags() Config {
+	ignoreLine := pflag.StringArrayP("ignore-line", "l", defaultConfig.IgnoreLines, "Append to ignore lines")
+	ignoreFile := pflag.StringArrayP("ignore-file", "f", defaultConfig.IgnoreFiles, "Append to ignore files")
+	directory := pflag.StringArrayP("directory", "d", defaultConfig.Directories, "Set directories")
+	resetIgnore := pflag.Bool("reset-ignore", defaultConfig.ResetIgnore, "Reset ignore lists before appending")
+	maxCopySize := pflag.Int64P("copy", "c", defaultConfig.MaxCopySize, "Enable clipboard copy with optional maximum size")
+	outputFile := pflag.StringP("output-file", "o", defaultConfig.OutputFile, "Specify the output file path")
+	forceReplace := pflag.BoolP("output-file-replace", "R", defaultConfig.ForceReplace, "Force replacement of existing output file")
+
+	pflag.Parse()
+
+	return Config{
+		IgnoreFiles:  *ignoreFile,
+		IgnoreLines:  *ignoreLine,
+		Directories:  *directory,
+		ResetIgnore:  *resetIgnore,
+		MaxCopySize:  *maxCopySize,
+		OutputFile:   *outputFile,
+		ForceReplace: *forceReplace,
+	}
+}
+
+func run(config Config) {
+	ignoreFiles, ignoreLines := processIgnoreFlags(config)
+	ignored := compileIgnore(ignoreFiles, ignoreLines)
+	project := genProject(config.Directories, ignored)
+	output := generateOutput(project)
+
+	if config.OutputFile != "" {
+		writeToFile(output, config.OutputFile, config.ForceReplace)
+	} else if config.MaxCopySize > 0 {
+		copyToClipboard(output, config.MaxCopySize)
+	} else {
+		fmt.Print(output)
+	}
+}
+
+func processIgnoreFlags(config Config) ([]string, []string) {
+	var ignoreFiles, ignoreLines []string
+
+	if !config.ResetIgnore {
+		ignoreFiles = defaultConfig.IgnoreFiles
+		ignoreLines = defaultConfig.IgnoreLines
+	}
+
+	ignoreLines = append(ignoreLines, config.IgnoreLines...)
+	ignoreFiles = append(ignoreFiles, config.IgnoreFiles...)
+
+	return ignoreFiles, ignoreLines
+}
+
+func generateOutput(project Project) string {
 	indentContent := func(content, indent string) string {
 		lines := strings.Split(content, "\n")
 		for i, line := range lines {
@@ -75,9 +138,47 @@ func printProject(project Project) {
 </project>`
 
 	t := template.Must(template.New("project").Funcs(funcMap).Parse(tmpl))
-	if err := t.Execute(os.Stdout, project); err != nil {
-		fmt.Println("Error executing template:", err)
+	var buffer strings.Builder
+	if err := t.Execute(&buffer, project); err != nil {
+		handleError("Error executing template", err)
 	}
+	return buffer.String()
+}
+
+func writeToFile(content, filePath string, forceReplace bool) {
+	if !forceReplace && fileExists(filePath) {
+
+		fmt.Printf("File %s already exists. Overwrite? (y/N): ", filePath)
+		var response string
+		fmt.Scanln(&response)
+
+		if strings.ToLower(response) != "y" {
+			fmt.Println("Operation cancelled.")
+			return
+		}
+	}
+
+	err := os.WriteFile(filePath, []byte(content), 0644)
+	handleError("Error writing to file", err)
+
+	fmt.Printf("Output written to %s\n", filePath)
+}
+
+func copyToClipboard(content string, maxCopySize int64) {
+	if contentSize := int64(len(content)); contentSize > maxCopySize {
+		fmt.Fprintf(os.Stderr, "Error: content size (%d) is greater than specified max clipboard size (%d)\n", contentSize, maxCopySize)
+
+	} else {
+		err := clipboard.WriteAll(content)
+		handleError("Error copying to clipboard", err)
+
+		fmt.Printf("Output(%d) copied to clipboard\n", contentSize)
+	}
+}
+
+func fileExists(filePath string) bool {
+	_, err := os.Stat(filePath)
+	return !os.IsNotExist(err)
 }
 
 func handleError(message string, err error) {
