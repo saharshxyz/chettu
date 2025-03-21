@@ -36,7 +36,7 @@ type File struct {
 
 var defaultConfig = Config{
 	IgnoreFiles:  []string{".gitignore", ".chettuignore"},
-	IgnoreLines:  []string{"git", ".jpeg", ".jpg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".avif", ".heif", ".heic", ".psd", ".psp", ".xpm", ".ppm", ".pgm", ".pbm", ".hdr", ".img", ".ras", ".ico", ".cur", ".dds", ".svg", ".ai", ".eps", ".pdf", ".cdr", ".wmf", ".emf", ".cr2", ".nef", ".arw", ".orf", ".raf", ".rw2", ".dng", ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".flv", ".webm", ".mpg", ".mpeg", ".3gp", ".ogv", ".m4v", ".ts", ".asf", ".apng", ".mng", ".ktx", ".pvr", ".astc", ".gltf", ".glb", ".obj", ".fbx", ".stl", ".dae", ".usdz"}, // Mostly just image/video files that should always be ignored
+	IgnoreLines:  []string{".git", ".jpeg", ".jpg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".avif", ".heif", ".heic", ".psd", ".psp", ".xpm", ".ppm", ".pgm", ".pbm", ".hdr", ".img", ".ras", ".ico", ".cur", ".dds", ".svg", ".ai", ".eps", ".pdf", ".cdr", ".wmf", ".emf", ".cr2", ".nef", ".arw", ".orf", ".raf", ".rw2", ".dng", ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".flv", ".webm", ".mpg", ".mpeg", ".3gp", ".ogv", ".m4v", ".ts", ".asf", ".apng", ".mng", ".ktx", ".pvr", ".astc", ".gltf", ".glb", ".obj", ".fbx", ".stl", ".dae", ".usdz"}, // Mostly just image/video files that should always be ignored
 	Directories:  []string{"./"},
 	ResetIgnore:  false,
 	MaxCopySize:  50000,
