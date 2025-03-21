@@ -13,7 +13,6 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// Types
 type Config struct {
 	IgnoreFiles  []string
 	IgnoreLines  []string
@@ -35,10 +34,9 @@ type File struct {
 	Content string `xml:"file_content"`
 }
 
-// Constants
 var defaultConfig = Config{
 	IgnoreFiles:  []string{".gitignore", ".chettuignore"},
-	IgnoreLines:  []string{".git"},
+	IgnoreLines:  []string{"git", ".jpeg", ".jpg", ".png", ".gif", ".bmp", ".tif", ".tiff", ".webp", ".avif", ".heif", ".heic", ".psd", ".psp", ".xpm", ".ppm", ".pgm", ".pbm", ".hdr", ".img", ".ras", ".ico", ".cur", ".dds", ".svg", ".ai", ".eps", ".pdf", ".cdr", ".wmf", ".emf", ".cr2", ".nef", ".arw", ".orf", ".raf", ".rw2", ".dng", ".mp4", ".avi", ".mov", ".wmv", ".mkv", ".flv", ".webm", ".mpg", ".mpeg", ".3gp", ".ogv", ".m4v", ".ts", ".asf", ".apng", ".mng", ".ktx", ".pvr", ".astc", ".gltf", ".glb", ".obj", ".fbx", ".stl", ".dae", ".usdz"}, // Mostly just image/video files that should always be ignored
 	Directories:  []string{"./"},
 	ResetIgnore:  false,
 	MaxCopySize:  50000,
@@ -46,15 +44,12 @@ var defaultConfig = Config{
 	ForceReplace: false,
 }
 
-// Main function
-
 func main() {
 	config := parseFlags()
 	ignored, config := setupProject(config)
 	run(config, ignored)
 }
 
-// Core functionality
 func run(config Config, ignored *ignore.GitIgnore) {
 	project := genProject(config.Directories, ignored)
 	output := generateOutput(project)
@@ -103,7 +98,6 @@ func genProject(dirs []string, ignored *ignore.GitIgnore) Project {
 	return project
 }
 
-// Configuration and setup
 func parseFlags() Config {
 	ignoreLine := pflag.StringArrayP("ignore-line", "l", defaultConfig.IgnoreLines, "Append to ignore lines")
 	ignoreFile := pflag.StringArrayP("ignore-file", "f", defaultConfig.IgnoreFiles, "Append to ignore files")
@@ -191,7 +185,6 @@ func compileIgnore(files, lines []string) *ignore.GitIgnore {
 	return ignored
 }
 
-// Output generation
 func generateOutput(project Project) string {
 	funcMap := template.FuncMap{
 		"indent": func(content string) string {
@@ -233,7 +226,6 @@ func indentContent(content, indent string) string {
 	return strings.Join(lines, "\n")
 }
 
-// File operations
 func writeToFile(content, filePath string, forceReplace bool) {
 	if !forceReplace && fileExists(filePath) {
 		fmt.Printf("File %s already exists. Overwrite? (y/N): ", filePath)
@@ -263,7 +255,6 @@ func copyToClipboard(content string, maxCopySize int64) {
 	}
 }
 
-// Utility functions
 func fileExists(filePath string) bool {
 	_, err := os.Stat(filePath)
 	return !os.IsNotExist(err)
