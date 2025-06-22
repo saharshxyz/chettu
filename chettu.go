@@ -10,9 +10,9 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/atotto/clipboard"
 	ignore "github.com/sabhiram/go-gitignore"
 	"github.com/spf13/pflag"
+	"golang.design/x/clipboard"
 )
 
 //go:embed project.tmpl
@@ -297,9 +297,10 @@ func copyToClipboard(content string, maxCopySize int64) {
 	if contentSize := int64(len(content)); contentSize > maxCopySize {
 		fmt.Fprintf(os.Stderr, "\nError: content size (%d) is greater than max copy size (%d)\n", contentSize, maxCopySize)
 	} else {
-		err := clipboard.WriteAll(content)
-		handleError("Error copying to clipboard", err)
+		err := clipboard.Init()
+		handleError("Error initializing clipboard", err)
 
+		clipboard.Write(clipboard.FmtText, []byte(content))
 		fmt.Printf("\nOutput(%d) copied to clipboard\n", contentSize)
 	}
 }
