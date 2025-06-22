@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"embed"
 	"encoding/xml"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sort"
@@ -73,17 +75,17 @@ func genProject(dirs []string, ignored *ignore.GitIgnore) Project {
 	var filePaths []string
 
 	for _, dir := range dirs {
-		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 			handleError("Error walking file", err)
 
 			if ignored.MatchesPath(path) {
-				if info.IsDir() {
+				if d.IsDir() {
 					return filepath.SkipDir
 				}
 				return nil
 			}
 
-			if !info.IsDir() {
+			if !d.IsDir() {
 				filePaths = append(filePaths, path)
 				fmt.Println(path)
 
@@ -95,7 +97,6 @@ func genProject(dirs []string, ignored *ignore.GitIgnore) Project {
 					Content: string(content),
 				})
 			}
-
 			return nil
 		})
 		handleError("Error walking directory", err)
@@ -189,7 +190,7 @@ func parseFlags() Config {
 
 func setupProject(config Config) (*ignore.GitIgnore, Config) {
 	ignoreFiles, ignoreLines := processIgnoreFlags(config)
-	ignored := compileIgnore(ignoreFiles, ignoreLines)
+	ignored := compileIgnoreInMemory(ignoreFiles, ignoreLines)
 	return ignored, config
 }
 
@@ -207,43 +208,24 @@ func processIgnoreFlags(config Config) ([]string, []string) {
 	return ignoreFiles, ignoreLines
 }
 
-func compileIgnore(files, lines []string) *ignore.GitIgnore {
-	createIgnoreFile := func(files, lines []string) (string, func()) {
-		tmpFile, err := os.CreateTemp("", ".tmpChettuIgnore*")
-		handleError("Error creating temporary ignore file", err)
+func compileIgnoreInMemory(files, lines []string) *ignore.GitIgnore {
+	var patterns []string
 
-		cleanup := func() {
-			tmpFile.Close()
-			os.Remove(tmpFile.Name())
+	for _, file := range files {
+		f, err := os.Open(file)
+		if err != nil {
+			continue
 		}
-
-		var content []byte
-
-		for _, file := range files {
-			if fileContent, err := os.ReadFile(file); err == nil {
-				content = append(content, []byte("#"+file+"\n")...)
-				content = append(content, fileContent...)
-				content = append(content, '\n', '\n')
-			}
+		scanner := bufio.NewScanner(f)
+		for scanner.Scan() {
+			patterns = append(patterns, scanner.Text())
 		}
-
-		content = append(content, []byte("# ignore lines"+"\n")...)
-		for _, line := range append(lines, files...) {
-			content = append(content, []byte(line+"\n")...)
-		}
-
-		handleError("Error writing to temporary file", os.WriteFile(tmpFile.Name(), content, 0644))
-		handleError("Error closing temporary file", tmpFile.Close())
-
-		return tmpFile.Name(), cleanup
+		f.Close()
 	}
 
-	fileName, tmpIgnoreFileCleanup := createIgnoreFile(files, lines)
-	defer tmpIgnoreFileCleanup()
+	patterns = append(patterns, lines...)
 
-	ignored, err := ignore.CompileIgnoreFile(fileName)
-	handleError("Unable to compile ignore file", err)
-
+	ignored := ignore.CompileIgnoreLines(patterns...)
 	return ignored
 }
 
