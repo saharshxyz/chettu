@@ -1,10 +1,12 @@
 package main
 
 import (
+	"embed"
 	"encoding/xml"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"text/template"
 
@@ -12,6 +14,9 @@ import (
 	ignore "github.com/sabhiram/go-gitignore"
 	"github.com/spf13/pflag"
 )
+
+//go:embed project.tmpl
+var templateFS embed.FS
 
 type Config struct {
 	IgnoreFiles  []string
@@ -25,7 +30,7 @@ type Config struct {
 
 type Project struct {
 	XMLName  xml.Name `xml:"project"`
-	FileTree []string `xml:"file_tree>file_path"`
+	FileTree string   `xml:"file_tree"`
 	Files    []File   `xml:"file"`
 }
 
@@ -36,7 +41,7 @@ type File struct {
 
 var defaultConfig = Config{
 	IgnoreFiles:  []string{".gitignore", ".chettuignore"},
-	IgnoreLines:  []string{".git", "*.otf", "*.jpeg", "*.jpg", "*.png", "*.gif", "*.bmp", "*.tif", "*.tiff", "*.webp", "*.avif", "*.heif", "*.heic", "*.psd", "*.psp", "*.xpm", "*.ppm", "*.pgm", "*.pbm", "*.hdr", "*.img", "*.ras", "*.ico", "*.cur", "*.dds", "*.svg", "*.ai", "*.eps", "*.pdf", "*.cdr", "*.wmf", "*.emf", "*.cr2", "*.nef", "*.arw", "*.orf", "*.raf", "*.rw2", "*.dng", "*.mp4", "*.avi", "*.mov", "*.wmv", "*.mkv", "*.flv", "*.webm", "*.mpg", "*.mpeg", "*.3gp", "*.ogv", "*.m4v", "*.ts", "*.asf", "*.apng", "*.mng", "*.ktx", "*.pvr", "*.astc", "*.gltf", "*.glb", "*.obj", "*.fbx", "*.stl", "*.dae", "*.usdz"}, // Mostly just image/video files that should always be ignored
+	IgnoreLines:  []string{".git", "*.otf", "*.jpeg", "*.jpg", "*.png", "*.gif", "*.bmp", "*.tif", "*.tiff", "*.webp", "*.avif", "*.heif", "*.heic", "*.psd", "*.psp", "*.xpm", "*.ppm", "*.pgm", "*.pbm", "*.hdr", "*.img", "*.ras", "*.ico", "*.cur", "*.dds", "*.svg", "*.ai", "*.eps", "*.pdf", "*.cdr", "*.wmf", "*.emf", "*.cr2", "*.nef", "*.arw", "*.orf", "*.raf", "*.rw2", "*.dng", "*.mp4", "*.avi", "*.mov", "*.wmv", "*.mkv", "*.flv", "*.webm", "*.mpg", "*.mpeg", "*.3gp", "*.ogv", "*.m4v", "*.asf", "*.apng", "*.mng", "*.ktx", "*.pvr", "*.astc", "*.gltf", "*.glb", "*.obj", "*.fbx", "*.stl", "*.dae", "*.usdz"}, // Mostly just image/video files that should always be ignored
 	Directories:  []string{"./"},
 	ResetIgnore:  false,
 	MaxCopySize:  50000,
@@ -65,6 +70,7 @@ func run(config Config, ignored *ignore.GitIgnore) {
 
 func genProject(dirs []string, ignored *ignore.GitIgnore) Project {
 	var project Project
+	var filePaths []string
 
 	for _, dir := range dirs {
 		err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -78,7 +84,7 @@ func genProject(dirs []string, ignored *ignore.GitIgnore) Project {
 			}
 
 			if !info.IsDir() {
-				project.FileTree = append(project.FileTree, path)
+				filePaths = append(filePaths, path)
 				fmt.Println(path)
 
 				content, err := os.ReadFile(path)
@@ -95,7 +101,63 @@ func genProject(dirs []string, ignored *ignore.GitIgnore) Project {
 		handleError("Error walking directory", err)
 	}
 
+	project.FileTree = generateFileTree(filePaths)
 	return project
+}
+
+func generateFileTree(paths []string) string {
+	tree := make(map[string]interface{})
+	for _, path := range paths {
+		parts := strings.Split(path, string(filepath.Separator))
+		currentLevel := tree
+		for i, part := range parts {
+			if part == "." {
+				continue
+			}
+			if i == len(parts)-1 {
+				currentLevel[part] = nil
+			} else {
+				if _, ok := currentLevel[part]; !ok {
+					currentLevel[part] = make(map[string]interface{})
+				}
+				currentLevel = currentLevel[part].(map[string]interface{})
+			}
+		}
+	}
+
+	var builder strings.Builder
+	builder.WriteString(".\n")
+	printTree(&builder, tree, "")
+	return builder.String()
+}
+
+func printTree(builder *strings.Builder, tree map[string]interface{}, prefix string) {
+	keys := make([]string, 0, len(tree))
+	for k := range tree {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	for i, key := range keys {
+		isLast := i == len(keys)-1
+		connector := "├── "
+		newPrefix := prefix + "│   "
+		if isLast {
+			connector = "└── "
+			newPrefix = prefix + "    "
+		}
+
+		builder.WriteString(prefix)
+		builder.WriteString(connector)
+		builder.WriteString(key)
+
+		if subTree, ok := tree[key].(map[string]interface{}); ok {
+			builder.WriteString("\n")
+			printTree(builder, subTree, newPrefix)
+		} else {
+			builder.WriteString("\n")
+		}
+	}
 }
 
 func parseFlags() Config {
@@ -188,27 +250,14 @@ func compileIgnore(files, lines []string) *ignore.GitIgnore {
 func generateOutput(project Project) string {
 	funcMap := template.FuncMap{
 		"indent": func(content string) string {
-			return indentContent(content, "\t\t")
+			return indentContent(content, "\t")
 		},
 	}
 
-	tmpl := `<project>
-<file_tree>
-	{{- range .FileTree}}
-	<file_path>{{.}}</file_path>
-	{{- end}}
-</file_tree>
-{{- range .Files}}
-<file>
-	<file_path>{{.Path}}</file_path>
-	<file_content>
-{{indent .Content}}
-	</file_content>
-</file>
-{{- end}}
-</project>`
+	tmpl, err := templateFS.ReadFile("project.tmpl")
+	handleError("Error reading embedded template file", err)
 
-	t := template.Must(template.New("project").Funcs(funcMap).Parse(tmpl))
+	t := template.Must(template.New("project").Funcs(funcMap).Parse(string(tmpl)))
 	var buffer strings.Builder
 	if err := t.Execute(&buffer, project); err != nil {
 		handleError("Error executing template", err)

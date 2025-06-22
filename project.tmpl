@@ -1,0 +1,15 @@
+<project>
+
+<source_tree>
+{{indent .FileTree}}
+</source_tree>
+
+<files>
+{{- range .Files}}
+<file path="{{.Path}}">
+{{indent .Content}}
+</file>
+{{- end}}
+</files>
+
+</project> 
