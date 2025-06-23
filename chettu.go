@@ -166,7 +166,7 @@ func parseFlags() Config {
 	ignoreFile := pflag.StringArrayP("ignore-file", "f", defaultConfig.IgnoreFiles, "Append to ignore files")
 	directory := pflag.StringArrayP("directory", "d", defaultConfig.Directories, "Set directories")
 	resetIgnore := pflag.Bool("reset-ignore", defaultConfig.ResetIgnore, "Reset ignore lists before appending")
-	maxCopySize := pflag.Int64P("copy", "c", defaultConfig.MaxCopySize, "Enable clipboard copy with optional maximum size")
+	maxCopySize := pflag.Int64P("copy", "c", defaultConfig.MaxCopySize, "Enable clipboard copy with optional maximum size in characters")
 	outputFile := pflag.StringP("output-file", "o", defaultConfig.OutputFile, "Specify the output file path")
 	forceReplace := pflag.BoolP("output-file-replace", "R", defaultConfig.ForceReplace, "Force replacement of existing output file")
 
@@ -283,7 +283,7 @@ func copyToClipboard(content string, maxCopySize int64) {
 		handleError("Error initializing clipboard", err)
 
 		clipboard.Write(clipboard.FmtText, []byte(content))
-		fmt.Printf("\nOutput(%d) copied to clipboard\n", contentSize)
+		fmt.Printf("\nOutput(%d characters) copied to clipboard\n", contentSize)
 	}
 }
 
