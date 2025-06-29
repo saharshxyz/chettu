@@ -1,5 +1,7 @@
 <project>
-
+{{if .ProjectName}}
+<project_name>{{.ProjectName}}</project_name>
+{{end}}
 <source_tree>
 {{indent .FileTree}}
 </source_tree>

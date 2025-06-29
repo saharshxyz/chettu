@@ -28,12 +28,14 @@ type Config struct {
 	MaxCopySize  int64
 	OutputFile   string
 	ForceReplace bool
+	ProjectName  string
 }
 
 type Project struct {
-	XMLName  xml.Name `xml:"project"`
-	FileTree string   `xml:"file_tree"`
-	Files    []File   `xml:"file"`
+	XMLName     xml.Name `xml:"project"`
+	ProjectName string   `xml:"project_name,attr,omitempty"`
+	FileTree    string   `xml:"file_tree"`
+	Files       []File   `xml:"file"`
 }
 
 type File struct {
@@ -49,6 +51,7 @@ var defaultConfig = Config{
 	MaxCopySize:  50000,
 	OutputFile:   "",
 	ForceReplace: false,
+	ProjectName:  "",
 }
 
 func main() {
@@ -58,7 +61,7 @@ func main() {
 }
 
 func run(config Config, ignored *ignore.GitIgnore) {
-	project := genProject(config.Directories, ignored)
+	project := genProject(config.Directories, ignored, config.ProjectName)
 	output := generateOutput(project)
 
 	if config.OutputFile != "" {
@@ -70,8 +73,9 @@ func run(config Config, ignored *ignore.GitIgnore) {
 	}
 }
 
-func genProject(dirs []string, ignored *ignore.GitIgnore) Project {
+func genProject(dirs []string, ignored *ignore.GitIgnore, projectName string) Project {
 	var project Project
+	project.ProjectName = projectName
 	var filePaths []string
 
 	for _, dir := range dirs {
@@ -169,6 +173,7 @@ func parseFlags() Config {
 	maxCopySize := pflag.Int64P("copy", "c", defaultConfig.MaxCopySize, "Enable clipboard copy with optional maximum size in characters")
 	outputFile := pflag.StringP("output-file", "o", defaultConfig.OutputFile, "Specify the output file path")
 	forceReplace := pflag.BoolP("output-file-replace", "R", defaultConfig.ForceReplace, "Force replacement of existing output file")
+	projectName := pflag.StringP("project-name", "n", defaultConfig.ProjectName, "Set project name")
 
 	pflag.Parse()
 
@@ -185,6 +190,7 @@ func parseFlags() Config {
 		MaxCopySize:  *maxCopySize,
 		OutputFile:   *outputFile,
 		ForceReplace: *forceReplace,
+		ProjectName:  *projectName,
 	}
 }
 

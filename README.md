@@ -48,6 +48,7 @@ go build -o chettu .
 | `--ignore-line`         | `-l`  | Pattern to ignore (repeatable)                       | `.git` + binary/media extensions  |
 | `--ignore-file`         | `-f`  | Ignore file to use (repeatable)                      | `[".gitignore", ".chettuignore"]` |
 | `--reset-ignore`        |       | Discard default ignore patterns                      | `false`                           |
+| `--project-name`        | `-n`  | Set project name (appears in output)                 | `""` (no project name)            |
 | `--output-file`         | `-o`  | Output file path                                     | `""` (no file output)             |
 | `--output-file-replace` | `-R`  | Force overwrite existing output file (requires `-o`) | `false`                           |
 | `--copy`                | `-c`  | Copy to clipboard with max size in bytes             | `50000` (50KB)                    |
@@ -57,6 +58,9 @@ go build -o chettu .
 ```shell
 # Multiple directories
 chettu -d ./src -d ./docs
+
+# Set project name
+chettu -n "My Awesome Project"
 
 # Custom ignore patterns
 chettu -l "*.log" -l "dist"
@@ -71,17 +75,19 @@ chettu --reset-ignore -l "*.tmp" -l "vendor"
 chettu -o project_structure.xml -R
 
 # Combined options
-chettu -d /path/to/project -l "*.log" -o output.xml -c 200000
+chettu -n "My Project" -d /path/to/project -l "*.log" -o output.xml -c 200000
 ```
 
 ## Output Format
 
 Generates XML with `<project>` root containing:
+- `<project_name>`: Project name (when specified with `-n` flag)
 - `<source_tree>`: Text-based directory visualization
 - `<files>`: Individual `<file>` elements with `path` attribute and content
 
 ```xml
 <project>
+    <project_name>My Awesome Project</project_name>
     <source_tree>
         .
         ├── README.md
